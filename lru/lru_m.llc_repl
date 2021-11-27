@@ -54,7 +54,7 @@ void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t wa
     if(type==PREFETCH && !hit){
         int x = 1;
         
-        if(block[set][way].lru >= NUM_WAY-x+1){
+        if(block[set][way].lru >= NUM_WAY-x+1){	// if already at lru
             return;
         }
         for (uint32_t i=0; i<NUM_WAY; i++) {
@@ -63,7 +63,7 @@ void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t wa
             }
             
         }
-        block[set][way].lru = NUM_WAY-x;
+        block[set][way].lru = NUM_WAY-x;	// insert at lru
         return;
     }
     
