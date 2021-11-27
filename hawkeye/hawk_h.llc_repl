@@ -303,24 +303,11 @@ void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t wa
     
     
     if(type==PREFETCH) {
-	/*	
-	//HM
-	if(!hit)
-	   rrpv[set][way] = maxRRPV;
-        return;
-	*/
 	
 	//H
 	if(hit)
 	 return;
 	
-	/*
-	//M
-	if(!hit) {
-	   rrpv[set][way] = maxRRPV;
-	   return;	
-	}
-	*/
     }	
 
     //Set RRIP values and age cache-friendly line
