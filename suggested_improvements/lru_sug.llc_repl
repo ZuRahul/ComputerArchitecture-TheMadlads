@@ -1,0 +1,215 @@
+#include "cache.h"
+
+
+#define NUM_POLICY 3
+#define SDM_SIZE 32
+#define TOTAL_SDM_SETS NUM_CPUS*NUM_POLICY*SDM_SIZE
+#define PSEL_WIDTH 10
+#define PSEL_MAX ((1<<PSEL_WIDTH)-1)
+#define PSEL_INIT PSEL_MAX/2
+
+
+unsigned rand_sets[TOTAL_SDM_SETS];
+uint32_t PSEL[NUM_CPUS][NUM_POLICY];
+
+void tracker_init() 
+{
+    srand(time(NULL));
+    unsigned long rand_seed = rand();
+    unsigned long max_rand = 1048576;
+    uint32_t my_set = LLC_SET;
+    int do_again = 0;
+    for (int i=0; i<TOTAL_SDM_SETS; i++) {
+        do {
+            do_again = 0;
+            rand_seed = rand_seed * 1103515245 + 12345;
+            rand_sets[i] = ((unsigned) ((rand_seed/65536) % max_rand)) % my_set;
+            for (int j=0; j<i; j++) {
+                if (rand_sets[i] == rand_sets[j]) {
+                    do_again = 1;
+                    break;
+                }
+            }
+        } while (do_again);
+    }
+
+    for(int i=0; i<NUM_CPUS; i++)
+	for(int j=0; j<NUM_POLICY; j++)
+	    PSEL[i][j]=PSEL_INIT;
+}
+
+void update_PSEL(int cpu, int policy)
+{
+    int check=0;
+    for(int i=0; i<NUM_POLICY; i++) {
+	if(i==policy)
+	    check = ((PSEL[cpu][i]+NUM_POLICY-1) > PSEL_MAX);
+	else
+	    check = (PSEL[cpu][i]==0);
+	if(check)
+	    return;
+    }
+    for(int i=0; i<NUM_POLICY; i++) {
+	if(i==policy)
+	    PSEL[cpu][i]+=NUM_POLICY-1;
+	else
+	    PSEL[cpu][i]--;
+    }
+}
+
+int global_policy(int cpu)
+{
+    int min_idx=0;
+    for(int i=1; i<NUM_POLICY; i++)
+	min_idx = PSEL[cpu][i] < PSEL[cpu][min_idx] ? i : min_idx;
+    return min_idx;
+}
+
+int is_it_leader(uint32_t cpu, uint32_t set)
+{
+    uint32_t start = cpu * NUM_POLICY * SDM_SIZE,
+             end = start + NUM_POLICY * SDM_SIZE;
+
+    for (uint32_t i=start; i<end; i++)
+        if (rand_sets[i] == set)
+            return ((i - start) / SDM_SIZE);
+
+    return -1;
+}
+
+
+// initialize replacement state
+void CACHE::llc_initialize_replacement()
+{
+
+    tracker_init();
+
+}
+
+// find replacement victim
+uint32_t CACHE::llc_find_victim(uint32_t cpu, uint64_t instr_id, uint32_t set, const BLOCK *current_set, uint64_t ip, uint64_t full_addr, uint32_t type)
+{
+    // baseline LRU
+    return lru_victim(cpu, instr_id, set, current_set, ip, full_addr, type); 
+}
+
+
+// called on every cache hit and cache fill
+void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t way, uint64_t full_addr, uint64_t ip, uint64_t victim_addr, uint32_t type, uint8_t hit)
+{
+    string TYPE_NAME;
+    if (type == LOAD)
+        TYPE_NAME = "LOAD";
+    else if (type == RFO)
+        TYPE_NAME = "RFO";
+    else if (type == PREFETCH)
+        TYPE_NAME = "PF";
+    else if (type == WRITEBACK)
+        TYPE_NAME = "WB";
+    else
+        assert(0);
+
+    if (hit)
+        TYPE_NAME += "_HIT";
+    else
+        TYPE_NAME += "_MISS";
+
+    if ((type == WRITEBACK) && ip)
+        assert(0);
+
+    // uncomment this line to see the LLC accesses
+    // cout << "CPU: " << cpu << "  LLC " << setw(9) << TYPE_NAME << " set: " << setw(5) << set << " way: " << setw(2) << way;
+    // cout << hex << " paddr: " << setw(12) << paddr << " ip: " << setw(8) << ip << " victim_addr: " << victim_addr << dec << endl;
+
+    // baseline LRU
+    if (hit && (type == WRITEBACK)) // writeback hit does not update LRU state
+        return;
+
+
+    // // For PACMan-H
+    // if(block[set][way].prefetch && hit){
+    //     return;
+    // }
+    
+    // // For PACMan-M
+    // if(block[set][way].prefetch){
+    //     block[s]
+    // }
+
+    // for (uint32_t i=0; i<NUM_WAY; i++) {
+    //     if (block[set][i].lru < block[set][way].lru) {
+    //         block[set][i].lru++;
+    //     }
+    // }
+    // block[set][way].lru = 0; // promote to the MRU position
+
+	//For PACMan - DYN
+	//P-DP, nP-DP, nP-nDP
+
+	int leader = is_it_leader(cpu,set);
+	
+	if(type==PREFETCH) {
+		if(hit && block[set][way].prefetch)
+			return;
+		if(leader==-1)
+			leader = global_policy(cpu);
+		switch(leader) {
+			case 1: //P-DP
+				if(hit) {
+					int nw = block[set][way].lru > 0 ? block[set][way].lru-1 : 0;
+					nw = nw < NUM_WAY/2 ? nw : NUM_WAY/2;
+					for (uint32_t i=0; i<NUM_WAY; i++) {
+						if (block[set][i].lru<block[set][way].lru && block[set][i].lru>=nw) {
+							block[set][i].lru++;
+						}
+					}
+					block[set][way].lru = nw;
+					return;
+				}
+			case 2: //nP-DP
+				if(hit) {
+					int nw = block[set][way].lru > 0 ? block[set][way].lru-1 : 0;
+					nw = nw < NUM_WAY/2 ? nw : NUM_WAY/2;
+					for (uint32_t i=0; i<NUM_WAY; i++) {
+						if (block[set][i].lru<block[set][way].lru && block[set][i].lru>=nw) {
+							block[set][i].lru++;
+						}
+					}
+					block[set][way].lru = nw;
+				}
+				else {
+					for (uint32_t i=0; i<NUM_WAY; i++) {
+						if (block[set][i].lru > block[set][way].lru) {
+							block[set][i].lru--;
+						}
+					}
+					block[set][way].lru = NUM_WAY-1;
+				}
+				return;
+			default:  //nP-nDP
+				for (uint32_t i=0; i<NUM_WAY; i++) {
+					if (block[set][i].lru > block[set][way].lru) {
+						block[set][i].lru--;
+					}
+				}
+				block[set][way].lru = NUM_WAY-1;
+				return;
+		}
+
+	}
+	else if(type!=WRITEBACK) {
+		if(!hit){
+		    if(leader!=-1)
+		        update_PSEL(cpu,leader);
+		}
+	}
+	
+	lru_update(set, way);
+
+
+}
+
+void CACHE::llc_replacement_final_stats()
+{
+
+}
