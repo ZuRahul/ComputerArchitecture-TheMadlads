@@ -9,9 +9,10 @@
 #define PSEL_INIT PSEL_MAX/2
 
 
-unsigned rand_sets[TOTAL_SDM_SETS];
-uint32_t PSEL[NUM_CPUS][NUM_POLICY];
+unsigned rand_sets[TOTAL_SDM_SETS];	// tracker/leader sets
+uint32_t PSEL[NUM_CPUS][NUM_POLICY];	// counters
 
+// initializing tracker sets and counter values
 void tracker_init() 
 {
     srand(time(NULL));
@@ -38,6 +39,7 @@ void tracker_init()
 	    PSEL[i][j]=PSEL_INIT;
 }
 
+// updating counters on demand misses
 void update_PSEL(int cpu, int policy)
 {
     int check=0;
@@ -57,6 +59,7 @@ void update_PSEL(int cpu, int policy)
     }
 }
 
+// returns the global policy using per policy counters
 int global_policy(int cpu)
 {
     int min_idx=0;
@@ -65,6 +68,7 @@ int global_policy(int cpu)
     return min_idx;
 }
 
+// returns policy associated with set if it's in the tracker sets
 int is_it_leader(uint32_t cpu, uint32_t set)
 {
     uint32_t start = cpu * NUM_POLICY * SDM_SIZE,
@@ -121,27 +125,10 @@ void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t wa
     // cout << "CPU: " << cpu << "  LLC " << setw(9) << TYPE_NAME << " set: " << setw(5) << set << " way: " << setw(2) << way;
     // cout << hex << " paddr: " << setw(12) << paddr << " ip: " << setw(8) << ip << " victim_addr: " << victim_addr << dec << endl;
 
-    // baseline LRU
+   
     if (hit && (type == WRITEBACK)) // writeback hit does not update LRU state
         return;
 
-
-    // // For PACMan-H
-    // if(block[set][way].prefetch && hit){
-    //     return;
-    // }
-    
-    // // For PACMan-M
-    // if(block[set][way].prefetch){
-    //     block[s]
-    // }
-
-    // for (uint32_t i=0; i<NUM_WAY; i++) {
-    //     if (block[set][i].lru < block[set][way].lru) {
-    //         block[set][i].lru++;
-    //     }
-    // }
-    // block[set][way].lru = 0; // promote to the MRU position
 
 	//For PACMan - DYN
 	//P-DP, nP-DP, nP-nDP
@@ -149,13 +136,13 @@ void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t wa
 	int leader = is_it_leader(cpu,set);
 	
 	if(type==PREFETCH) {
-		if(hit && block[set][way].prefetch)
+		if(hit && block[set][way].prefetch)	// ignore prefetch hits on prefetch request
 			return;
-		if(leader==-1)
+		if(leader==-1)	// follower set
 			leader = global_policy(cpu);
 		switch(leader) {
 			case 1: //P-DP
-				if(hit) {
+				if(hit) {	//decrease rrpv for demand hits on prefetch request
 					int nw = block[set][way].lru > 0 ? block[set][way].lru-1 : 0;
 					nw = nw < NUM_WAY/2 ? nw : NUM_WAY/2;
 					for (uint32_t i=0; i<NUM_WAY; i++) {
@@ -163,11 +150,11 @@ void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t wa
 							block[set][i].lru++;
 						}
 					}
-					block[set][way].lru = nw;
+					block[set][way].lru = nw;	
 					return;
 				}
 			case 2: //nP-DP
-				if(hit) {
+				if(hit) {	//decrease rrpv for demand hits on prefetch request
 					int nw = block[set][way].lru > 0 ? block[set][way].lru-1 : 0;
 					nw = nw < NUM_WAY/2 ? nw : NUM_WAY/2;
 					for (uint32_t i=0; i<NUM_WAY; i++) {
@@ -177,7 +164,7 @@ void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t wa
 					}
 					block[set][way].lru = nw;
 				}
-				else {
+				else {		//deprioritize Prefetch misses
 					for (uint32_t i=0; i<NUM_WAY; i++) {
 						if (block[set][i].lru > block[set][way].lru) {
 							block[set][i].lru--;
@@ -192,7 +179,7 @@ void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t wa
 						block[set][i].lru--;
 					}
 				}
-				block[set][way].lru = NUM_WAY-1;
+				block[set][way].lru = NUM_WAY-1;	// deprioritize prefetch accesses
 				return;
 		}
 

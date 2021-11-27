@@ -12,9 +12,10 @@
 uint32_t rrpv[LLC_SET][LLC_WAY],
          bip_counter = 0;
 
-unsigned rand_sets[TOTAL_SDM_SETS];
-uint32_t PSEL[NUM_CPUS][NUM_POLICY];
+unsigned rand_sets[TOTAL_SDM_SETS];	// tracker/leader sets
+uint32_t PSEL[NUM_CPUS][NUM_POLICY];	// counters
 
+// initializing tracker sets and counter values
 void tracker_init() 
 {
     srand(time(NULL));
@@ -41,6 +42,8 @@ void tracker_init()
 	    PSEL[i][j]=PSEL_INIT;
 }
 
+
+// updating counters on demand misses
 void update_PSEL(int cpu, int policy)
 {
     int check=0;
@@ -49,7 +52,7 @@ void update_PSEL(int cpu, int policy)
 	    check = ((PSEL[cpu][i]+NUM_POLICY-1) > PSEL_MAX);
 	else
 	    check = (PSEL[cpu][i]==0);
-	if(check)
+	if(check)	// saturated so return
 	    return;
     }
     for(int i=0; i<NUM_POLICY; i++) {
@@ -60,6 +63,7 @@ void update_PSEL(int cpu, int policy)
     }
 }
 
+// returns the global policy using per policy counters
 int global_policy(int cpu)
 {
     int min_idx=0;
@@ -81,6 +85,8 @@ void CACHE::llc_initialize_replacement()
     tracker_init();
 }
 
+
+// returns policy associated with set if it's in the tracker sets
 int is_it_leader(uint32_t cpu, uint32_t set)
 {
     uint32_t start = cpu * NUM_POLICY * SDM_SIZE,
@@ -108,22 +114,22 @@ void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t wa
 
 // H : P-DP, nP-DP, nP-nDP
 
-	if(type==PREFETCH && hit && block[set][way].prefetch)
+	if(type==PREFETCH && hit && block[set][way].prefetch)	//ignore prefetch hits on prefetch requests
 		return;
-    int leader = is_it_leader(cpu, set);    
+    int leader = is_it_leader(cpu, set);   
 
     	int pol = leader;
-	if(leader==-1)
+	if(leader==-1)	// follower set
             pol = global_policy(cpu);
         switch(pol) {
-            case 1: //SRRIP+P-DP
+            case 1: //SRRIP+(P-DP)
 		if(hit && type==PREFETCH) {
 			rrpv[set][way] = rrpv[set][way] > 0 ? rrpv[set][way]-1 : 0;
 			return; 		
 		}
 		rrpv[set][way] = maxRRPV-1;
                 break;
-            case 2: //SRRIP+nP-DP
+            case 2: //SRRIP+(nP-DP)
 		if(type==PREFETCH) {
 			if(hit) 
 				rrpv[set][way] = rrpv[set][way] > 0 ? rrpv[set][way]-1 : 0;		
@@ -133,14 +139,14 @@ void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t wa
 		}
 		rrpv[set][way] = maxRRPV-1;
                 break;
-	    case 3: //SRRIP+nP-nDP
+	    case 3: //SRRIP+(nP-nDP)
 		if(type==PREFETCH) {
 			rrpv[set][way] = maxRRPV;
 			return;
 		}
 		rrpv[set][way] = maxRRPV-1;
                 break;
-	    case 4: //BRRIP+nP-DP
+	    case 4: //BRRIP+(nP-DP)
 		if(type==PREFETCH) {
 			if(hit) 
 				rrpv[set][way] = rrpv[set][way] > 0 ? rrpv[set][way]-1 : 0;		
@@ -153,7 +159,7 @@ void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t wa
 		if (bip_counter == BIP_MAX) bip_counter = 0;
 		if (bip_counter == 0) rrpv[set][way] = maxRRPV-1;
                 break;
-            default: //BRRIP+nP-nDP
+            default: //BRRIP+(nP-nDP)
 		rrpv[set][way] = maxRRPV;
 		bip_counter++;
 		if (bip_counter == BIP_MAX) bip_counter = 0;

@@ -83,9 +83,10 @@ vector<map<uint64_t, ADDR_INFO> > addr_history; // Sampler
 #define BIP_MAX 32
 
 uint32_t bip_counter = 0;
-unsigned rand_sets[TOTAL_SDM_SETS];
-uint32_t PSEL[NUM_CPUS][NUM_POLICY];
+unsigned rand_sets[TOTAL_SDM_SETS];	// tracker/leader sets
+uint32_t PSEL[NUM_CPUS][NUM_POLICY];	// counters
 
+// initializing tracker sets and counter values
 void tracker_init() 
 {
     srand(time(NULL));
@@ -112,6 +113,7 @@ void tracker_init()
 	    PSEL[i][j]=PSEL_INIT;
 }
 
+// updating counters on demand misses
 void update_PSEL(int cpu, int policy)
 {
     int check=0;
@@ -131,6 +133,7 @@ void update_PSEL(int cpu, int policy)
     }
 }
 
+// returns the global policy using per policy counters
 int global_policy(int cpu)
 {
     int min_idx=0;
@@ -139,6 +142,7 @@ int global_policy(int cpu)
     return min_idx;
 }
 
+// returns policy associated with set if it's in the tracker sets
 int is_it_leader(uint32_t cpu, uint32_t set)
 {
     uint32_t start = cpu * NUM_POLICY * SDM_SIZE,
@@ -384,8 +388,9 @@ void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t wa
     
     int leader = is_it_leader(cpu, set);
     
+    // PACMan rrpv updates only on prefetch requests
     if(type==PREFETCH) {
-        if(leader==-1)
+        if(leader==-1)	// follower set
             leader = global_policy(cpu);
         switch(leader) {
             case 1: //H
@@ -419,7 +424,7 @@ void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t wa
     }	
     else {
         if(!hit){
-            if(leader!=-1)
+            if(leader!=-1)	// update counters on demand miss
                 update_PSEL(cpu,leader);
 	    }
     }
