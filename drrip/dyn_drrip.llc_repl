@@ -12,9 +12,10 @@
 uint32_t rrpv[LLC_SET][LLC_WAY],
          bip_counter = 0;
 
-unsigned rand_sets[TOTAL_SDM_SETS];
-uint32_t PSEL[NUM_CPUS][NUM_POLICY];
+unsigned rand_sets[TOTAL_SDM_SETS];	// tracker/leader sets
+uint32_t PSEL[NUM_CPUS][NUM_POLICY];	// counters
 
+// initializing tracker sets and counter values
 void tracker_init() 
 {
     srand(time(NULL));
@@ -41,6 +42,7 @@ void tracker_init()
 	    PSEL[i][j]=PSEL_INIT;
 }
 
+// updating counters on demand misses
 void update_PSEL(int cpu, int policy)
 {
     int check=0;
@@ -49,7 +51,7 @@ void update_PSEL(int cpu, int policy)
 	    check = ((PSEL[cpu][i]+NUM_POLICY-1) > PSEL_MAX);
 	else
 	    check = (PSEL[cpu][i]==0);
-	if(check)
+	if(check)	// saturated so return
 	    return;
     }
     for(int i=0; i<NUM_POLICY; i++) {
@@ -60,6 +62,7 @@ void update_PSEL(int cpu, int policy)
     }
 }
 
+// returns the global policy using per policy counters
 int global_policy(int cpu)
 {
     int min_idx=0;
@@ -81,6 +84,7 @@ void CACHE::llc_initialize_replacement()
     tracker_init();
 }
 
+// returns policy associated with set if it's in the tracker sets
 int is_it_leader(uint32_t cpu, uint32_t set)
 {
     uint32_t start = cpu * NUM_POLICY * SDM_SIZE,
@@ -109,16 +113,16 @@ void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t wa
     int leader = is_it_leader(cpu, set);    
 
     	int pol = leader;
-	if(leader==-1)
+	if(leader==-1)	// follower set
             pol = global_policy(cpu);
         switch(pol) {
             case 1: //SRRIP+H
-		if(type==PREFETCH && hit)
+		if(type==PREFETCH && hit)	// ignore hits on prefetch requests
 			return;
 		rrpv[set][way] = maxRRPV-1;
                 break;
             case 2: //SRRIP+HM
-		if(type==PREFETCH) {
+		if(type==PREFETCH) {	// ingore hits on prefetch requests and deprioritize incoming blocks due to prefetches
 			if(!hit)
 				rrpv[set][way] = maxRRPV;
 			return;
@@ -126,7 +130,7 @@ void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t wa
 		rrpv[set][way] = maxRRPV-1;
                 break;
             default: //BRRIP+H
-		if(type==PREFETCH && hit)
+		if(type==PREFETCH && hit)	// ignore hits on prefetch requests
 			return;
 		rrpv[set][way] = maxRRPV;
 		bip_counter++;
