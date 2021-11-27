@@ -2,7 +2,7 @@
 
 This project is done as a part of [CS305: Computer Architecture](https://www.cse.iitb.ac.in/~biswa/courses/CS305/schedule.html) course at IIT Bombay. Project was exploratory in nature.
 
-Please visit [here](https://www.cse.iitb.ac.in/~biswa/courses/CS305/schedule.html) for youtube presentation of the project and [here](https://docs.google.com/presentation/d/1eobW-fVJbAONTi6Z1mov5JbysMUcHD2tHaUWxwXW_Is/edit?usp=sharing) is link to the presentation slide.
+Please visit [here](https://www.cse.iitb.ac.in/~biswa/courses/CS305/schedule.html) for youtube presentation of the project and [here](https://www.youtube.com/watch?v=EH_5PRf8In8) is link to the presentation slide.
 
 # Benchmark INFO
 
